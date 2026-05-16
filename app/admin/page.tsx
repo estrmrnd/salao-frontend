@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useSession } from 'next-auth/react'
 import AdminNav from '../components/AdminNav'
 
@@ -16,10 +16,10 @@ type Agendamento = {
 }
 
 const statusLabel: Record<string, string> = {
-  pendente: 'Pendente',
+  pendente:   'Pendente',
   confirmado: 'Confirmado',
-  concluido: 'Concluído',
-  cancelado: 'Cancelado',
+  concluido:  'Concluído',
+  cancelado:  'Cancelado',
 }
 
 const statusColor: Record<string, { bg: string; color: string; border: string }> = {
@@ -75,16 +75,59 @@ function hoje() {
 export default function AdminDashboard() {
   const { data: session } = useSession()
   const [agendamentos, setAgendamentos] = useState<Agendamento[]>([])
-  const [loading, setLoading] = useState(true)
-  const [dataFiltro, setDataFiltro] = useState(hoje())
-  const [periodo, setPeriodo] = useState('dia')
-  const [atualizando, setAtualizando] = useState<number | null>(null)
+  const [loading, setLoading]           = useState(true)
+  const [dataFiltro, setDataFiltro]     = useState(hoje())
+  const [periodo, setPeriodo]           = useState('dia')
+  const [atualizando, setAtualizando]   = useState<number | null>(null)
 
+  // ── Push notification ──
+  const pendentesRef = useRef<number | null>(null)
+
+  // Pede permissão de notificação ao abrir o painel
+  useEffect(() => {
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission()
+    }
+  }, [])
+
+  // Polling a cada 30s: detecta novos pendentes e dispara push
+  useEffect(() => {
+    const checar = async () => {
+  try {
+    const r = await fetch(`/api-php/agendamento.php?periodo=ano`)
+    const dados: Agendamento[] = await r.json()
+    const novos = dados.filter(a => a.status === 'pendente').length
+
+    if (pendentesRef.current !== null && novos > pendentesRef.current) {
+      const diff = novos - pendentesRef.current
+      if (Notification.permission === 'granted') {
+        new Notification('Novo agendamento! 💇', {
+          body: `Você tem ${diff} novo${diff > 1 ? 's' : ''} pedido${diff > 1 ? 's' : ''} pendente${diff > 1 ? 's' : ''}.`,
+          icon: '/favicon.ico',
+        })
+      }
+      if (periodo === 'dia' && dataFiltro === hoje()) {
+        setAgendamentos(dados)
+      }
+    }
+
+    pendentesRef.current = novos
+  } catch {
+    // silencioso
+  }
+}
+    checar()
+    const intervalo = setInterval(checar, 30_000)
+    return () => clearInterval(intervalo)
+  }, [periodo, dataFiltro])
+
+  // ── Busca principal ──
   const buscar = (data: string, p: string) => {
     setLoading(true)
     const url = p === 'dia'
       ? `/api-php/agendamento.php?data=${data}`
       : `/api-php/agendamento.php?periodo=${p}`
+
     fetch(url)
       .then(r => r.json())
       .then(data => { setAgendamentos(data); setLoading(false) })
@@ -104,25 +147,24 @@ export default function AdminDashboard() {
     setAtualizando(null)
   }
 
-  const ativos = agendamentos.filter(a => a.status !== 'cancelado')
+  const ativos      = agendamentos.filter(a => a.status !== 'cancelado')
   const faturamento = ativos
     .filter(a => a.status === 'concluido')
     .reduce((acc, a) => acc + parseFloat(a.preco_cobrado), 0)
-  const pendentes = agendamentos.filter(a => a.status === 'pendente').length
+  const pendentes   = agendamentos.filter(a => a.status === 'pendente').length
   const confirmados = agendamentos.filter(a => a.status === 'confirmado').length
 
   const metricaStyle = (bg: string, color: string): React.CSSProperties => ({
-    background: bg,
-    border: `1px solid ${color}`,
+    background:   bg,
+    border:       `1px solid ${color}`,
     borderRadius: '12px',
-    padding: '1rem 1.25rem',
-    flex: 1,
-    minWidth: '140px',
+    padding:      '1rem 1.25rem',
+    flex:         1,
+    minWidth:     '140px',
   })
 
   return (
     <main style={{ maxWidth: '780px', margin: '0 auto', padding: '2rem 1.5rem' }}>
-
       <AdminNav />
 
       {/* Seletor de período */}
@@ -132,14 +174,14 @@ export default function AdminDashboard() {
             key={p.valor}
             onClick={() => setPeriodo(p.valor)}
             style={{
-              padding: '6px 16px',
-              fontSize: '13px',
+              padding:    '6px 16px',
+              fontSize:   '13px',
               borderRadius: '20px',
-              cursor: 'pointer',
-              border: periodo === p.valor ? '1px solid #c4a898' : '1px solid var(--border)',
-              background: periodo === p.valor ? '#f0ece8' : 'transparent',
-              color: periodo === p.valor ? '#4a3020' : 'var(--muted)',
-              fontWeight: periodo === p.valor ? '500' : 'normal',
+              cursor:     'pointer',
+              border:     periodo === p.valor ? '1px solid #c4a898' : '1px solid var(--border)',
+              background: periodo === p.valor ? '#f0ece8'           : 'transparent',
+              color:      periodo === p.valor ? '#4a3020'           : 'var(--muted)',
+              fontWeight: periodo === p.valor ? '500'               : 'normal',
               transition: 'all 0.15s',
             }}
           >
@@ -159,6 +201,7 @@ export default function AdminDashboard() {
             }}
             style={{ background: 'none', border: '1px solid var(--border)', borderRadius: '8px', width: '32px', height: '32px', cursor: 'pointer', color: 'var(--text)', fontSize: '16px' }}
           >‹</button>
+
           <input
             type="date"
             value={dataFiltro}
@@ -169,6 +212,7 @@ export default function AdminDashboard() {
               background: 'var(--surface)', fontFamily: 'inherit', cursor: 'pointer',
             }}
           />
+
           <button
             onClick={() => {
               const d = new Date(dataFiltro + 'T12:00:00')
@@ -177,6 +221,7 @@ export default function AdminDashboard() {
             }}
             style={{ background: 'none', border: '1px solid var(--border)', borderRadius: '8px', width: '32px', height: '32px', cursor: 'pointer', color: 'var(--text)', fontSize: '16px' }}
           >›</button>
+
           {dataFiltro !== hoje() && (
             <button
               onClick={() => setDataFiltro(hoje())}
@@ -232,13 +277,13 @@ export default function AdminDashboard() {
               <div
                 key={a.id}
                 style={{
-                  background: 'var(--surface)',
-                  border: '1px solid var(--border)',
-                  borderRadius: '12px',
-                  padding: '1rem 1.25rem',
-                  display: 'flex',
-                  gap: '1rem',
-                  alignItems: 'flex-start',
+                  background:    'var(--surface)',
+                  border:        '1px solid var(--border)',
+                  borderRadius:  '12px',
+                  padding:       '1rem 1.25rem',
+                  display:       'flex',
+                  gap:           '1rem',
+                  alignItems:    'flex-start',
                 }}
               >
                 {/* Hora */}
@@ -271,6 +316,7 @@ export default function AdminDashboard() {
                       {statusLabel[a.status]}
                     </span>
                   </div>
+
                   <p style={{ fontSize: '13px', color: 'var(--muted)' }}>
                     {a.servico} · {a.profissional}
                   </p>
@@ -326,7 +372,6 @@ export default function AdminDashboard() {
           })}
         </div>
       )}
-
     </main>
   )
 }
