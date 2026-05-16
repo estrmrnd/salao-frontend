@@ -93,31 +93,29 @@ export default function AdminDashboard() {
   // Polling a cada 30s: detecta novos pendentes e dispara push
   useEffect(() => {
     const checar = async () => {
-      try {
-        const r    = await fetch(`/api-php/agendamento.php?data=${hoje()}`)
-        const dados: Agendamento[] = await r.json()
-        const novos = dados.filter(a => a.status === 'pendente').length
+  try {
+    const r = await fetch(`/api-php/agendamento.php?periodo=ano`)
+    const dados: Agendamento[] = await r.json()
+    const novos = dados.filter(a => a.status === 'pendente').length
 
-        if (pendentesRef.current !== null && novos > pendentesRef.current) {
-          const diff = novos - pendentesRef.current
-          if (Notification.permission === 'granted') {
-            new Notification('Novo agendamento! 💇', {
-              body: `Você tem ${diff} novo${diff > 1 ? 's' : ''} pedido${diff > 1 ? 's' : ''} pendente${diff > 1 ? 's' : ''}.`,
-              icon: '/favicon.ico',
-            })
-          }
-          // Atualiza a lista visivelmente se estiver no modo dia/hoje
-          if (periodo === 'dia' && dataFiltro === hoje()) {
-            setAgendamentos(dados)
-          }
-        }
-
-        pendentesRef.current = novos
-      } catch {
-        // silencioso — não quebra o painel se o fetch falhar
+    if (pendentesRef.current !== null && novos > pendentesRef.current) {
+      const diff = novos - pendentesRef.current
+      if (Notification.permission === 'granted') {
+        new Notification('Novo agendamento! 💇', {
+          body: `Você tem ${diff} novo${diff > 1 ? 's' : ''} pedido${diff > 1 ? 's' : ''} pendente${diff > 1 ? 's' : ''}.`,
+          icon: '/favicon.ico',
+        })
+      }
+      if (periodo === 'dia' && dataFiltro === hoje()) {
+        setAgendamentos(dados)
       }
     }
 
+    pendentesRef.current = novos
+  } catch {
+    // silencioso
+  }
+}
     checar()
     const intervalo = setInterval(checar, 30_000)
     return () => clearInterval(intervalo)
